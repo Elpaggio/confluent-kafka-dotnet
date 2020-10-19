@@ -58,6 +58,8 @@ namespace Confluent.SchemaRegistry.Serdes
             ///     Possible values: <see cref="Confluent.SchemaRegistry.SubjectNameStrategy" />
             /// </summary>
             public const string SubjectNameStrategy = "avro.serializer.subject.name.strategy";
+
+            public const string UseLatestSchemaVersion = "avro.serializer.use.latest.version";
         }
 
 
@@ -101,7 +103,12 @@ namespace Confluent.SchemaRegistry.Serdes
             get { return GetBool(PropertyNames.AutoRegisterSchemas); }
             set { SetObject(PropertyNames.AutoRegisterSchemas, value); }
         }
-        
+
+        public bool? UseLatestSchemaVersion
+        {
+            get { return GetBool("avro.serializer.use.latest.version"); }
+            set { SetObject("avro.serializer.use.latest.version", value); }
+        }
 
         /// <summary>
         ///     Subject name strategy.
