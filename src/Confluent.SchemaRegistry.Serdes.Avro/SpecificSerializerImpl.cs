@@ -35,6 +35,7 @@ namespace Confluent.SchemaRegistry.Serdes
     internal class SpecificSerializerImpl<T> : IAvroSerializerImpl<T>
     {
         internal class SerializerSchemaData
+        {
 
             private string writerSchemaString;
             private global::Avro.Schema writerSchema;
