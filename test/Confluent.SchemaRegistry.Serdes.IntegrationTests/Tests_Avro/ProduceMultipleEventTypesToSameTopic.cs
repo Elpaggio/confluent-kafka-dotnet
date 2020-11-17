@@ -44,13 +44,21 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
                 BootstrapServers = bootstrapServers
             };
 
+           var topic = Guid.NewGuid().ToString();
+
+            using (var adminClient = new AdminClientBuilder(adminClientConfig).Build())
+            {
+                adminClient.CreateTopicsAsync(
+                    new List<TopicSpecification> { new TopicSpecification { Name = topic, NumPartitions = 1, ReplicationFactor = 1 } }).Wait();
+            }
+
             var srClient = new CachedSchemaRegistryClient(schemaRegistryConfig);
             Schema schema1 = new Schema(@"{""type"":""record"",""name"":""EventA"",""namespace"":""Kafka.Avro.Examples"",""fields"":[{""name"":""EventType"",""type"":""string""},{""name"":""EventId"",""type"":""string""},{""name"":""OccuredOn"",""type"":""long""},{""name"":""A"",""type"":""string""}]}", SchemaType.Avro);
             Schema schema2 = new Schema(@"{""type"":""record"",""name"":""EventB"",""namespace"":""Kafka.Avro.Examples"",""fields"":[{""name"":""EventType"",""type"":""string""},{""name"":""EventId"",""type"":""string""},{""name"":""OccuredOn"",""type"":""long""},{""name"":""B"",""type"":""long""}]}", SchemaType.Avro);
             var id1 = srClient.RegisterSchemaAsync("events-a", schema1).Result;
             var id2 = srClient.RegisterSchemaAsync("events-b", schema2).Result;
 
-            var avroUnion = @"[""Kafka.Avro.Examples.EventA""],[""Kafka.Avro.Examples.EventB""]";
+            var avroUnion = @"[""Kafka.Avro.Examples.EventA"",""Kafka.Avro.Examples.EventB""]";
             Schema unionSchema = new Schema(avroUnion, SchemaType.Avro);
             SchemaReference reference = new SchemaReference(
               "Kafka.Avro.Examples.EventA",
@@ -63,15 +71,7 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
               srClient.GetLatestSchemaAsync("events-b").Result.Version);
             unionSchema.References.Add(reference);
 
-            var topic = Guid.NewGuid().ToString();
-
             var id3 = srClient.RegisterSchemaAsync($"{topic}-value", unionSchema).Result;
-
-            using (var adminClient = new AdminClientBuilder(adminClientConfig).Build())
-            {
-                adminClient.CreateTopicsAsync(
-                    new List<TopicSpecification> { new TopicSpecification { Name = topic, NumPartitions = 1, ReplicationFactor = 1 } }).Wait();
-            }
 
             AvroSerializerConfig avroSerializerConfig = new AvroSerializerConfig { AutoRegisterSchemas = false, UseLatestSchemaVersion = true };
             using (var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig))

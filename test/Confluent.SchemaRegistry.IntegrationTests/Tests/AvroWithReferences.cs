@@ -37,7 +37,7 @@ namespace Confluent.SchemaRegistry.IntegrationTests
             var id1 = srClient.RegisterSchemaAsync("events-a", schema1).Result;
             var id2 = srClient.RegisterSchemaAsync("events-b", schema2).Result;
 
-            var avroUnion = @"[""Kafka.Avro.Examples.EventA""],[""Kafka.Avro.Examples.EventB""]";
+            var avroUnion = @"[""Kafka.Avro.Examples.EventA"",""Kafka.Avro.Examples.EventB""]";
             Schema unionSchema = new Schema(avroUnion, SchemaType.Avro);
             SchemaReference reference = new SchemaReference(
               "Kafka.Avro.Examples.EventA",
