@@ -314,11 +314,7 @@ namespace Confluent.SchemaRegistry
                         .ConfigureAwait(continueOnCapturedContext: false));
 
         public async Task<int> RegisterSchemaAsync(string subject, Schema schema)
-            => schema.SchemaType == SchemaType.Avro
-                // In the avro case, just send the schema string to maintain backards compatibility.
-                ? (await RequestAsync<SchemaId>($"subjects/{WebUtility.UrlEncode(subject)}/versions", HttpMethod.Post, new SchemaString(schema.SchemaString))
-                        .ConfigureAwait(continueOnCapturedContext: false)).Id
-                : (await RequestAsync<SchemaId>($"subjects/{WebUtility.UrlEncode(subject)}/versions", HttpMethod.Post, schema)
+            => (await RequestAsync<SchemaId>($"subjects/{WebUtility.UrlEncode(subject)}/versions", HttpMethod.Post, schema)
                         .ConfigureAwait(continueOnCapturedContext: false)).Id;
 
         // Checks whether a schema has been registered under a given subject.

@@ -37,7 +37,7 @@ namespace Confluent.SchemaRegistry.Serdes
         private bool autoRegisterSchema;
         private int initialBufferSize;
         private SubjectNameStrategyDelegate subjectNameStrategy;
-
+        private bool useLatestSchema;
         private string writerSchemaString;
         private global::Avro.Schema writerSchema;
 
@@ -57,12 +57,14 @@ namespace Confluent.SchemaRegistry.Serdes
             ISchemaRegistryClient schemaRegistryClient,
             bool autoRegisterSchema,
             int initialBufferSize,
-            SubjectNameStrategyDelegate subjectNameStrategy)
+            SubjectNameStrategyDelegate subjectNameStrategy,
+            bool useLatestSchema = false)
         {
             this.schemaRegistryClient = schemaRegistryClient;
             this.autoRegisterSchema = autoRegisterSchema;
             this.initialBufferSize = initialBufferSize;
             this.subjectNameStrategy = subjectNameStrategy;
+            this.useLatestSchema = useLatestSchema;
 
             Type writerType = typeof(T);
             if (typeof(ISpecificRecord).IsAssignableFrom(writerType))
@@ -142,12 +144,20 @@ namespace Confluent.SchemaRegistry.Serdes
 
                     if (!subjectsRegistered.Contains(subject))
                     {
-                        // first usage: register/get schema to check compatibility
-                        writerSchemaId = autoRegisterSchema
-                            ? await schemaRegistryClient.RegisterSchemaAsync(subject, writerSchemaString).ConfigureAwait(continueOnCapturedContext: false)
-                            : await schemaRegistryClient.GetSchemaIdAsync(subject, writerSchemaString).ConfigureAwait(continueOnCapturedContext: false);
+                        if (useLatestSchema)
+                        {
+                            RegisteredSchema regSchema = await schemaRegistryClient.GetLatestSchemaAsync(subject).ConfigureAwait(continueOnCapturedContext: false);
+                            writerSchemaId = regSchema.Id;
+                        }
+                        else
+                        {
+                            // first usage: register/get schema to check compatibility
+                            writerSchemaId = autoRegisterSchema
+                                ? await schemaRegistryClient.RegisterSchemaAsync(subject, writerSchemaString).ConfigureAwait(continueOnCapturedContext: false)
+                                : await schemaRegistryClient.GetSchemaIdAsync(subject, writerSchemaString).ConfigureAwait(continueOnCapturedContext: false);
 
-                        subjectsRegistered.Add(subject);
+                            subjectsRegistered.Add(subject);
+                        }
                     }
                 }
                 finally
