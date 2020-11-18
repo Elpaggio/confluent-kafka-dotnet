@@ -215,7 +215,25 @@ namespace Confluent.SchemaRegistry.Serdes
                         if (useLatestSchema)
                         {
                             RegisteredSchema regSchema = await schemaRegistryClient.GetLatestSchemaAsync(subject).ConfigureAwait(continueOnCapturedContext: false);
-                            currentSchemaData.WriterSchemaId = regSchema.Id;
+                            int id = 0;
+                            if (regSchema.References.Any())
+                            {
+                                var refSchema = regSchema.References.SingleOrDefault((r) => r.Name == currentSchemaData.WriterSchema.Fullname);
+                                if (refSchema == null)
+                                {
+                                  throw new Exception($"Schema reference '{currentSchemaData.WriterSchema.Fullname}' not found on subject '{subject}'");
+                                }
+
+                                id = await schemaRegistryClient.GetSchemaIdAsync(refSchema.Subject, currentSchemaData.WriterSchemaString)
+                                .ConfigureAwait(continueOnCapturedContext: false);
+                                currentSchemaData.WriterSchemaId = regSchema.Id;
+                            }
+                            else
+                            {
+                                id = await schemaRegistryClient.GetSchemaIdAsync(subject, currentSchemaData.WriterSchemaString)
+                                    .ConfigureAwait(continueOnCapturedContext: false);
+                                currentSchemaData.WriterSchemaId = regSchema.Id;
+                            }
                         }
                         else
                         {
@@ -226,9 +244,9 @@ namespace Confluent.SchemaRegistry.Serdes
                                 .ConfigureAwait(continueOnCapturedContext: false)
                             : await schemaRegistryClient.GetSchemaIdAsync(subject, currentSchemaData.WriterSchemaString)
                                 .ConfigureAwait(continueOnCapturedContext: false);
+                        }
 
                         currentSchemaData.SubjectsRegistered.Add(subject);
-                        }
                     }
                 }
                 finally

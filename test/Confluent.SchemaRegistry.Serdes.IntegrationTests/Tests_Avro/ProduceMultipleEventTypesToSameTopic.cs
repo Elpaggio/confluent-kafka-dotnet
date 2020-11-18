@@ -44,7 +44,8 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
                 BootstrapServers = bootstrapServers
             };
 
-           var topic = Guid.NewGuid().ToString();
+            //var topic = "8303574d-2794-4bad-bbb4-fcfe48d2df97";
+            var topic = Guid.NewGuid().ToString();
 
             using (var adminClient = new AdminClientBuilder(adminClientConfig).Build())
             {
@@ -103,13 +104,34 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
                 {
                     B = 123456987,
                     EventId = Guid.NewGuid().ToString(),
-                    EventType = "EventType-A",
+                    EventType = "EventType-B",
                     OccuredOn = DateTime.UtcNow.Ticks,
                 };
 
                 producer.ProduceAsync(topic, new Message<Null, EventB> { Value = eventB }).Wait();
 
                 Assert.Equal(0, producer.Flush(TimeSpan.FromSeconds(10)));
+            }
+
+            using (var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig))
+            using (var producer =
+               new ProducerBuilder<Null, string>(producerConfig)
+                   .SetValueSerializer(new AvroSerializer<string>(schemaRegistry, avroSerializerConfig))
+                   .Build())
+            {
+                Assert.Throws<Exception>(() =>
+                  {
+                      try
+                      {
+                          producer.ProduceAsync(topic, new Message<Null, string> { Value = "eventC" })
+                        .GetAwaiter().GetResult();
+                      }
+                      catch (Exception e)
+                      {
+                          Assert.True(e is ProduceException<Confluent.Kafka.Null, string>);
+                          throw e.InnerException;
+                      }
+                  });
             }
         }
     }
