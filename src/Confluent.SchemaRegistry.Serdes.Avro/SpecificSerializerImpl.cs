@@ -212,6 +212,7 @@ namespace Confluent.SchemaRegistry.Serdes
 
                     if (!currentSchemaData.SubjectsRegistered.Contains(subject))
                     {
+                        // https://www.confluent.io/blog/multiple-event-types-in-the-same-kafka-topic/
                         if (useLatestSchema)
                         {
                             RegisteredSchema regSchema = await schemaRegistryClient.GetLatestSchemaAsync(subject).ConfigureAwait(continueOnCapturedContext: false);

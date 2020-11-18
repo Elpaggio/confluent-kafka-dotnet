@@ -28,6 +28,8 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
     public static partial class Tests
     {
         /// <summary>
+        /// Test that we can produce multiple events to the same topic also supporting validation
+        /// https://www.confluent.io/blog/multiple-event-types-in-the-same-kafka-topic/
         /// </summary>
         [Theory, MemberData(nameof(TestParameters))]
         private static void ProduceMultipleEventTypesToSameTopic(string bootstrapServers, string schemaRegistryServers)
@@ -44,7 +46,6 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
                 BootstrapServers = bootstrapServers
             };
 
-            //var topic = "8303574d-2794-4bad-bbb4-fcfe48d2df97";
             var topic = Guid.NewGuid().ToString();
 
             using (var adminClient = new AdminClientBuilder(adminClientConfig).Build())
