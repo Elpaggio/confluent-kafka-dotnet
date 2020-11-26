@@ -44,7 +44,6 @@ namespace Confluent.SchemaRegistry.Serdes
         private IAvroSerializerImpl<T> serializerImpl;
 
         private ISchemaRegistryClient schemaRegistryClient;
-        private bool useLatestSchemaVersion = false;
 
         /// <summary>
         ///     The default initial size (in bytes) of buffers used for message 
@@ -102,9 +101,7 @@ namespace Confluent.SchemaRegistry.Serdes
             {
                 if (property.Key != AvroSerializerConfig.PropertyNames.AutoRegisterSchemas &&
                     property.Key != AvroSerializerConfig.PropertyNames.BufferBytes &&
-                    property.Key != AvroSerializerConfig.PropertyNames.SubjectNameStrategy &&
-										property.Key != AvroSerializerConfig.PropertyNames.UseLatestSchemaVersion
-										)
+                    property.Key != AvroSerializerConfig.PropertyNames.SubjectNameStrategy)
                 {
                     throw new ArgumentException($"AvroSerializer: unknown configuration property {property.Key}");
                 }
@@ -113,7 +110,6 @@ namespace Confluent.SchemaRegistry.Serdes
             if (config.BufferBytes != null) { this.initialBufferSize = config.BufferBytes.Value; }
             if (config.AutoRegisterSchemas != null) { this.autoRegisterSchema = config.AutoRegisterSchemas.Value; }
             if (config.SubjectNameStrategy != null) { this.subjectNameStrategy = config.SubjectNameStrategy.Value.ToDelegate(); }
-						if (config.UseLatestSchemaVersion != null) { this.useLatestSchemaVersion = config.UseLatestSchemaVersion.Value; }
         }
 
 
@@ -141,7 +137,7 @@ namespace Confluent.SchemaRegistry.Serdes
                 {
                     serializerImpl = typeof(T) == typeof(GenericRecord)
                         ? (IAvroSerializerImpl<T>)new GenericSerializerImpl(schemaRegistryClient, autoRegisterSchema, initialBufferSize, subjectNameStrategy)
-                        : new SpecificSerializerImpl<T>(schemaRegistryClient, autoRegisterSchema, initialBufferSize, subjectNameStrategy, useLatestSchemaVersion);
+                        : new SpecificSerializerImpl<T>(schemaRegistryClient, autoRegisterSchema, initialBufferSize, subjectNameStrategy);
                 }
 
                 return await serializerImpl.Serialize(context.Topic, value, context.Component == MessageComponentType.Key);
