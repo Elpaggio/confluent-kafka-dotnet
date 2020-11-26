@@ -258,7 +258,6 @@ namespace Confluent.SchemaRegistry.Serdes
                             if (regSchema.References.Any() && IsUnion(regSchema.SchemaString))
                             {
                                 RegisteredSchema registeredRefSchema = null;
-                                bool isCompatible = false;
                                 StringBuilder schemaBuilder = new StringBuilder();
                                 schemaBuilder.Append("[");
 
@@ -280,20 +279,6 @@ namespace Confluent.SchemaRegistry.Serdes
                                     {
                                         schemaBuilder.Append(",");
                                     }
-
-                                    if (schema.Name == currentSchemaData.WriterSchema.Name)
-                                    {
-                                        //check compability with referenced schema
-                                        if (await schemaRegistryClient.TestCompatibilityAsync(refSchema.Subject, refSchema.Version, new Schema(currentSchemaData.WriterSchemaString, SchemaType.Avro)))
-                                        {
-                                            isCompatible = true;
-                                        }
-                                    }
-                                }
-
-                                if (!isCompatible)
-                                {
-                                    throw new Exception($"No compatible schema found in schema references for the union schema");
                                 }
 
                                 schemaBuilder.Append("]");
