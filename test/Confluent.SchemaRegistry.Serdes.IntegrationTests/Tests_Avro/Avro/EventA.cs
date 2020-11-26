@@ -12,7 +12,7 @@ namespace Confluent.Kafka.Examples.AvroSpecific
 
     public partial class EventA : ISpecificRecord
     {
-        public static Schema _SCHEMA = Schema.Parse("{\"type\":\"record\",\"name\":\"EventA\",\"namespace\":\"Kafka.Avro.Examples\",\"fields\":[{\"na" +
+        public static Schema _SCHEMA = Schema.Parse("{\"type\":\"record\",\"name\":\"EventA\",\"namespace\":\"Confluent.Kafka.Examples.AvroSpecific\",\"fields\":[{\"na" +
             "me\":\"EventType\",\"type\":\"string\"},{\"name\":\"EventId\",\"type\":\"string\"},{\"name\":\"Occ" +
             "uredOn\",\"type\":\"long\"},{\"name\":\"A\",\"type\":\"string\"}]}");
         private string _EventType;

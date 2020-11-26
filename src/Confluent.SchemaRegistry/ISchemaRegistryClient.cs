@@ -276,5 +276,24 @@ namespace Confluent.SchemaRegistry
         /// </returns>
         [Obsolete("SubjectNameStrategy should now be specified via serializer configuration. This method will be removed in a future release.")]
         string ConstructValueSubjectName(string topic, string recordType = null);
+
+        /// <summary>
+        ///     Check if a schema is compatible with the specific version registered against a 
+        ///     specified subject.
+        /// </summary>
+        /// <param name="subject">
+        ///     The subject to check.
+        /// </param>
+        /// <param name="version">
+        ///     The subject to check.
+        /// </param>
+        /// <param name="schema">
+        ///     The schema to check.
+        /// </param>
+        /// <returns>
+        ///     true if <paramref name="schema" /> is compatible with the specific version 
+        ///     registered against a specified subject, false otherwise.
+        /// </returns>
+        Task<bool> TestCompatibilityAsync(string subject, int version, Schema schema);
     }
 }

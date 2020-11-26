@@ -468,6 +468,10 @@ namespace Confluent.SchemaRegistry
         public async Task<bool> IsCompatibleAsync(string subject, Schema schema)
             => await restService.TestLatestCompatibilityAsync(subject, schema).ConfigureAwait(continueOnCapturedContext: false);
 
+        /// <inheritdoc/>
+        public async Task<bool> TestCompatibilityAsync(string subject, int version, Schema schema)
+            => await restService.TestCompatibilityAsync(subject, version, schema).ConfigureAwait(continueOnCapturedContext: false);
+
 
         /// <inheritdoc/>
         public async Task<bool> IsCompatibleAsync(string subject, string avroSchema)

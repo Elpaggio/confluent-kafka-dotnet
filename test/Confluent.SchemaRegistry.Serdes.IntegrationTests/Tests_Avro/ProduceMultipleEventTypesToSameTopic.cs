@@ -16,10 +16,17 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net;
+using Avro.Generic;
+using Avro.IO;
+using Avro.Specific;
 using Confluent.Kafka;
 using Confluent.Kafka.Admin;
 using Confluent.Kafka.Examples.AvroSpecific;
+using Confluent.Kafka.SyncOverAsync;
+using Newtonsoft.Json;
 using Xunit;
 
 
@@ -32,7 +39,7 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
         /// https://www.confluent.io/blog/multiple-event-types-in-the-same-kafka-topic/
         /// </summary>
         [Theory, MemberData(nameof(TestParameters))]
-        private static void ProduceMultipleEventTypesToSameTopic(string bootstrapServers, string schemaRegistryServers)
+        private static void BMSpecificProduceConsume(string bootstrapServers, string schemaRegistryServers)
         {
             var producerConfig = new ProducerConfig { BootstrapServers = bootstrapServers };
 
@@ -47,6 +54,7 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
             };
 
             var topic = Guid.NewGuid().ToString();
+            Console.Error.WriteLine($"topic: {topic}");
 
             using (var adminClient = new AdminClientBuilder(adminClientConfig).Build())
             {
@@ -55,20 +63,20 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
             }
 
             var srClient = new CachedSchemaRegistryClient(schemaRegistryConfig);
-            Schema schema1 = new Schema(@"{""type"":""record"",""name"":""EventA"",""namespace"":""Kafka.Avro.Examples"",""fields"":[{""name"":""EventType"",""type"":""string""},{""name"":""EventId"",""type"":""string""},{""name"":""OccuredOn"",""type"":""long""},{""name"":""A"",""type"":""string""}]}", SchemaType.Avro);
-            Schema schema2 = new Schema(@"{""type"":""record"",""name"":""EventB"",""namespace"":""Kafka.Avro.Examples"",""fields"":[{""name"":""EventType"",""type"":""string""},{""name"":""EventId"",""type"":""string""},{""name"":""OccuredOn"",""type"":""long""},{""name"":""B"",""type"":""long""}]}", SchemaType.Avro);
+            Schema schema1 = new Schema(EventA._SCHEMA.ToString(), SchemaType.Avro);
+            Schema schema2 = new Schema(EventB._SCHEMA.ToString(), SchemaType.Avro);
             var id1 = srClient.RegisterSchemaAsync("events-a", schema1).Result;
             var id2 = srClient.RegisterSchemaAsync("events-b", schema2).Result;
 
-            var avroUnion = @"[""Kafka.Avro.Examples.EventA"",""Kafka.Avro.Examples.EventB""]";
+            var avroUnion = @"[""Confluent.Kafka.Examples.AvroSpecific.EventA"",""Confluent.Kafka.Examples.AvroSpecific.EventB""]";
             Schema unionSchema = new Schema(avroUnion, SchemaType.Avro);
             SchemaReference reference = new SchemaReference(
-              "Kafka.Avro.Examples.EventA",
+              "Confluent.Kafka.Examples.AvroSpecific.EventA",
               "events-a",
               srClient.GetLatestSchemaAsync("events-a").Result.Version);
             unionSchema.References.Add(reference);
             reference = new SchemaReference(
-              "Kafka.Avro.Examples.EventB",
+              "Confluent.Kafka.Examples.AvroSpecific.EventB",
               "events-b",
               srClient.GetLatestSchemaAsync("events-b").Result.Version);
             unionSchema.References.Add(reference);
@@ -78,61 +86,243 @@ namespace Confluent.SchemaRegistry.Serdes.IntegrationTests
             AvroSerializerConfig avroSerializerConfig = new AvroSerializerConfig { AutoRegisterSchemas = false, UseLatestSchemaVersion = true };
             using (var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig))
             using (var producer =
-               new ProducerBuilder<Null, EventA>(producerConfig)
-                   .SetValueSerializer(new AvroSerializer<EventA>(schemaRegistry, avroSerializerConfig))
-                   .Build())
+               new ProducerBuilder<string, ISpecificRecord>(producerConfig)
+                .SetKeySerializer(new AvroSerializer<string>(schemaRegistry))
+                .SetValueSerializer(new BmSpecificSerializerImpl<ISpecificRecord>(
+                       schemaRegistry,
+                       false,
+                       1024,
+                       SubjectNameStrategy.Topic.ToDelegate(),
+                       true))
+                .Build())
             {
-                var eventA = new EventA
+                for (int i = 0; i < 3; ++i)
                 {
-                    A = "I'm event A",
-                    EventId = Guid.NewGuid().ToString(),
-                    EventType = "EventType-A",
-                    OccuredOn = DateTime.UtcNow.Ticks,
-                };
+                    var eventA = new EventA
+                    {
+                        A = "I'm event A",
+                        EventId = Guid.NewGuid().ToString(),
+                        EventType = "EventType-A",
+                        OccuredOn = DateTime.UtcNow.Ticks,
+                    };
 
-                producer.ProduceAsync(topic, new Message<Null, EventA> { Value = eventA }).Wait();
+                    producer.ProduceAsync(topic, new Message<string, ISpecificRecord> { Key = "DomainEvent", Value = eventA }).Wait();
+                }
+
+                for (int i = 0; i < 3; ++i)
+                {
+                    var eventB = new EventB
+                    {
+                        B = 123456987,
+                        EventId = Guid.NewGuid().ToString(),
+                        EventType = "EventType-B",
+                        OccuredOn = DateTime.UtcNow.Ticks,
+                    };
+
+                    producer.ProduceAsync(topic, new Message<string, ISpecificRecord> { Key = "DomainEvent", Value = eventB }).Wait();
+                }
 
                 Assert.Equal(0, producer.Flush(TimeSpan.FromSeconds(10)));
             }
 
+            var consumerConfig = new ConsumerConfig
+            {
+                BootstrapServers = bootstrapServers,
+                GroupId = Guid.NewGuid().ToString(),
+                SessionTimeoutMs = 6000,
+                AutoOffsetReset = AutoOffsetReset.Earliest,
+                EnablePartitionEof = true
+            };
+
+            using (var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig))
+            using (var consumer =
+                new ConsumerBuilder<string, GenericRecord>(consumerConfig)
+                    .SetKeyDeserializer(new AvroDeserializer<string>(schemaRegistry).AsSyncOverAsync())
+                    .SetValueDeserializer(new BmGenericDeserializerImpl(schemaRegistry).AsSyncOverAsync())
+                    .SetErrorHandler((_, e) => Assert.True(false, e.Reason))
+                    .Build())
+            {
+                consumer.Subscribe(topic);
+
+                int i = 0;
+                while (true)
+                {
+                    var record = consumer.Consume(TimeSpan.FromMilliseconds(100));
+                    if (record == null) { continue; }
+                    if (record.IsPartitionEOF) { break; }
+
+                    Console.WriteLine(record.Message.Value["EventType"]);
+                    i += 1;
+                }
+
+                Assert.Equal(6, i);
+
+                consumer.Close();
+            }
+        }
+
+        [Theory, MemberData(nameof(TestParameters))]
+        private static void GenericProduceConsume(string bootstrapServers, string schemaRegistryServers)
+        {
+            var producerConfig = new ProducerConfig { BootstrapServers = bootstrapServers };
+
+            var schemaRegistryConfig = new SchemaRegistryConfig
+            {
+                Url = schemaRegistryServers
+            };
+
+            var adminClientConfig = new AdminClientConfig
+            {
+                BootstrapServers = bootstrapServers
+            };
+
+            var topic = Guid.NewGuid().ToString();
+            Console.Error.WriteLine($"topic: {topic}");
+
+            using (var adminClient = new AdminClientBuilder(adminClientConfig).Build())
+            {
+                adminClient.CreateTopicsAsync(
+                    new List<TopicSpecification> { new TopicSpecification { Name = topic, NumPartitions = 1, ReplicationFactor = 1 } }).Wait();
+            }
+
+            var srClient = new CachedSchemaRegistryClient(schemaRegistryConfig);
+            Schema schema1 = new Schema(EventA._SCHEMA.ToString(), SchemaType.Avro);
+            Schema schema2 = new Schema(EventB._SCHEMA.ToString(), SchemaType.Avro);
+            var id1 = srClient.RegisterSchemaAsync("events-a", schema1).Result;
+            var id2 = srClient.RegisterSchemaAsync("events-b", schema2).Result;
+
+            var avroUnion = @"[""Confluent.Kafka.Examples.AvroSpecific.EventA"",""Confluent.Kafka.Examples.AvroSpecific.EventB""]";
+            Schema unionSchema = new Schema(avroUnion, SchemaType.Avro);
+            SchemaReference reference = new SchemaReference(
+              "Confluent.Kafka.Examples.AvroSpecific.EventA",
+              "events-a",
+              srClient.GetLatestSchemaAsync("events-a").Result.Version);
+            unionSchema.References.Add(reference);
+            reference = new SchemaReference(
+              "Confluent.Kafka.Examples.AvroSpecific.EventB",
+              "events-b",
+              srClient.GetLatestSchemaAsync("events-b").Result.Version);
+            unionSchema.References.Add(reference);
+
+            var id3 = srClient.RegisterSchemaAsync($"{topic}-value", unionSchema).Result;
+
+            AvroSerializerConfig avroSerializerConfig = new AvroSerializerConfig { AutoRegisterSchemas = false, UseLatestSchemaVersion = true };
             using (var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig))
             using (var producer =
-               new ProducerBuilder<Null, EventB>(producerConfig)
-                   .SetValueSerializer(new AvroSerializer<EventB>(schemaRegistry, avroSerializerConfig))
-                   .Build())
+               new ProducerBuilder<string, GenericRecord>(producerConfig)
+                .SetKeySerializer(new AvroSerializer<string>(schemaRegistry))
+                .SetValueSerializer(new BmGenericSerializerImpl(
+                       schemaRegistry,
+                       false,
+                       1024,
+                       SubjectNameStrategy.Topic.ToDelegate(),
+                       true))
+                .Build())
             {
-                var eventB = new EventB
+                for (int i = 0; i < 3; ++i)
                 {
-                    B = 123456987,
-                    EventId = Guid.NewGuid().ToString(),
-                    EventType = "EventType-B",
-                    OccuredOn = DateTime.UtcNow.Ticks,
-                };
+                    var eventA = new GenericRecord((Avro.RecordSchema)EventA._SCHEMA);
+                    eventA.Add("A", "I'm event A");
+                    eventA.Add("EventId", Guid.NewGuid().ToString());
+                    eventA.Add("EventType", "EventType-A");
+                    eventA.Add("OccuredOn", DateTime.UtcNow.Ticks);
 
-                producer.ProduceAsync(topic, new Message<Null, EventB> { Value = eventB }).Wait();
+                    producer.ProduceAsync(topic, new Message<string, GenericRecord> { Key = "DomainEvent", Value = eventA }).Wait();
+                }
+
+                for (int i = 0; i < 3; ++i)
+                {
+                    var eventB = new GenericRecord((Avro.RecordSchema)EventB._SCHEMA);
+                    eventB.Add("B", 123456987L);
+                    eventB.Add("EventId", Guid.NewGuid().ToString());
+                    eventB.Add("EventType", "EventType-B");
+                    eventB.Add("OccuredOn", DateTime.UtcNow.Ticks);
+
+                    producer.ProduceAsync(topic, new Message<string, GenericRecord> { Key = "DomainEvent", Value = eventB }).Wait();
+                }
 
                 Assert.Equal(0, producer.Flush(TimeSpan.FromSeconds(10)));
             }
 
-            using (var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig))
-            using (var producer =
-               new ProducerBuilder<Null, string>(producerConfig)
-                   .SetValueSerializer(new AvroSerializer<string>(schemaRegistry, avroSerializerConfig))
-                   .Build())
+            var consumerConfig = new ConsumerConfig
             {
-                Assert.Throws<Exception>(() =>
-                  {
-                      try
-                      {
-                          producer.ProduceAsync(topic, new Message<Null, string> { Value = "eventC" })
-                        .GetAwaiter().GetResult();
-                      }
-                      catch (Exception e)
-                      {
-                          Assert.True(e is ProduceException<Confluent.Kafka.Null, string>);
-                          throw e.InnerException;
-                      }
-                  });
+                BootstrapServers = bootstrapServers,
+                GroupId = Guid.NewGuid().ToString(),
+                SessionTimeoutMs = 6000,
+                AutoOffsetReset = AutoOffsetReset.Earliest,
+                EnablePartitionEof = true
+            };
+
+            using (var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig))
+            using (var consumer =
+                new ConsumerBuilder<string, GenericRecord>(consumerConfig)
+                    .SetKeyDeserializer(new AvroDeserializer<string>(schemaRegistry).AsSyncOverAsync())
+                    .SetValueDeserializer(new BmGenericDeserializerImpl(schemaRegistry).AsSyncOverAsync())
+                    .SetErrorHandler((_, e) => Assert.True(false, e.Reason))
+                    .Build())
+            {
+                consumer.Subscribe(topic);
+
+                int i = 0;
+                while (true)
+                {
+                    var record = consumer.Consume(TimeSpan.FromMilliseconds(100));
+                    if (record == null) { continue; }
+                    if (record.IsPartitionEOF) { break; }
+
+                    Console.WriteLine(record.Message.Value["EventType"]);
+                    i += 1;
+                }
+
+                Assert.Equal(6, i);
+
+                consumer.Close();
+            }
+        }
+
+        // This should work (it does using the java client) according to https://avro.apache.org/docs/current/spec.html#Schema+Resolution
+        // if writer's is a union, but reader's is not
+        // If the reader's schema matches the selected writer's schema, it is recursively resolved against it. If they do not match, an error is signalled.
+
+        // Unfortunately the .NET Avro doesn't support this scenario :(
+        [Theory, MemberData(nameof(TestParameters))]
+        private static void DefaultReader(string bootstrapServers, string schemaRegistryServers)
+        {
+            var writerSchema = Avro.Schema.Parse("[{\"type\":\"record\",\"name\":\"EventA\",\"namespace\":\"Confluent.Kafka.Examples.AvroSpecific\",\"fields\":[{\"name\":\"EventType\",\"type\":\"string\"},{\"name\":\"EventId\",\"type\":\"string\"},{\"name\":\"OccuredOn\",\"type\":\"long\"},{\"name\":\"A\",\"type\":\"string\"}]}, {\"type\":\"record\",\"name\":\"EventB\",\"namespace\":\"Confluent.Kafka.Examples.AvroSpecific\",\"fields\":[{\"name\":\"EventType\",\"type\":\"string\"},{\"name\":\"EventId\",\"type\":\"string\"},{\"name\":\"OccuredOn\",\"type\":\"long\"},{\"name\":\"B\",\"type\":\"long\"}]}]");
+            var readerschema = EventA._SCHEMA;
+
+            var eventA = new GenericRecord((Avro.RecordSchema)EventA._SCHEMA);
+            eventA.Add("A", "I'm event A");
+            eventA.Add("EventId", Guid.NewGuid().ToString());
+            eventA.Add("EventType", "EventType-A");
+            eventA.Add("OccuredOn", DateTime.UtcNow.Ticks);
+
+
+            byte[] serializedBytes;
+            using (var stream = new MemoryStream(1024))
+            using (var writer = new BinaryWriter(stream))
+            {
+                stream.WriteByte(0);
+
+                writer.Write(IPAddress.HostToNetworkOrder(1));
+                new GenericWriter<GenericRecord>(writerSchema).Write(eventA, new BinaryEncoder(stream));
+
+                // TODO: maybe change the ISerializer interface so that this copy isn't necessary.
+                serializedBytes = stream.ToArray();
+            }
+
+
+            using (var stream = new MemoryStream(serializedBytes))
+            using (var reader = new BinaryReader(stream))
+            {
+                var magicByte = reader.ReadByte();
+                if (magicByte != 0)
+                {
+                    throw new InvalidDataException($"Expecting data with Confluent Schema Registry framing. Magic byte was {serializedBytes[0]}, expecting {0}");
+                }
+                var writerId = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+                var datumReader = new GenericReader<GenericRecord>(writerSchema, readerschema);
+                var rec = datumReader.Read(default(GenericRecord), new BinaryDecoder(stream));
             }
         }
     }
