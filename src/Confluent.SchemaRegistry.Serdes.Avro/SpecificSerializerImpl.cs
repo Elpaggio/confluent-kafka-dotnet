@@ -36,7 +36,6 @@ namespace Confluent.SchemaRegistry.Serdes
     {
         internal class SerializerSchemaData
         {
-
             private string writerSchemaString;
             private global::Avro.Schema writerSchema;
 
@@ -81,7 +80,6 @@ namespace Confluent.SchemaRegistry.Serdes
             }
         }
 
-        private bool useLatestSchema;
         private ISchemaRegistryClient schemaRegistryClient;
         private bool autoRegisterSchema;
         private int initialBufferSize;
@@ -100,14 +98,12 @@ namespace Confluent.SchemaRegistry.Serdes
             ISchemaRegistryClient schemaRegistryClient,
             bool autoRegisterSchema,
             int initialBufferSize,
-            SubjectNameStrategyDelegate subjectNameStrategy,
-            bool useLatestSchema = false)
+            SubjectNameStrategyDelegate subjectNameStrategy)
         {
             this.schemaRegistryClient = schemaRegistryClient;
             this.autoRegisterSchema = autoRegisterSchema;
             this.initialBufferSize = initialBufferSize;
             this.subjectNameStrategy = subjectNameStrategy;
-            this.useLatestSchema = useLatestSchema;
 
             Type writerType = typeof(T);
             if (writerType != typeof(ISpecificRecord))
@@ -212,40 +208,13 @@ namespace Confluent.SchemaRegistry.Serdes
 
                     if (!currentSchemaData.SubjectsRegistered.Contains(subject))
                     {
-                        // https://www.confluent.io/blog/multiple-event-types-in-the-same-kafka-topic/
-                        if (useLatestSchema)
-                        {
-                            RegisteredSchema regSchema = await schemaRegistryClient.GetLatestSchemaAsync(subject).ConfigureAwait(continueOnCapturedContext: false);
-                            int id = 0;
-                            if (regSchema.References.Any())
-                            {
-                                var refSchema = regSchema.References.SingleOrDefault((r) => r.Name == currentSchemaData.WriterSchema.Fullname);
-                                if (refSchema == null)
-                                {
-                                  throw new Exception($"Schema reference '{currentSchemaData.WriterSchema.Fullname}' not found on subject '{subject}'");
-                                }
-
-                                id = await schemaRegistryClient.GetSchemaIdAsync(refSchema.Subject, currentSchemaData.WriterSchemaString)
-                                .ConfigureAwait(continueOnCapturedContext: false);
-                                currentSchemaData.WriterSchemaId = regSchema.Id;
-                            }
-                            else
-                            {
-                                id = await schemaRegistryClient.GetSchemaIdAsync(subject, currentSchemaData.WriterSchemaString)
-                                    .ConfigureAwait(continueOnCapturedContext: false);
-                                currentSchemaData.WriterSchemaId = regSchema.Id;
-                            }
-                        }
-                        else
-                        {
-                            // first usage: register/get schema to check compatibility
+                        // first usage: register/get schema to check compatibility
                         currentSchemaData.WriterSchemaId = autoRegisterSchema
                             ? await schemaRegistryClient
                                 .RegisterSchemaAsync(subject, currentSchemaData.WriterSchemaString)
                                 .ConfigureAwait(continueOnCapturedContext: false)
                             : await schemaRegistryClient.GetSchemaIdAsync(subject, currentSchemaData.WriterSchemaString)
                                 .ConfigureAwait(continueOnCapturedContext: false);
-                        }
 
                         currentSchemaData.SubjectsRegistered.Add(subject);
                     }
